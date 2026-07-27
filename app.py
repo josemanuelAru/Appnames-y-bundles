@@ -80,8 +80,8 @@ def process_app_list(app_list, target_os):
     # Búsqueda condicional según la selección del usuario
     if target_os in ['iOS', 'Ambos']:
       ios_bundle, ios_id = get_ios_info(name_clean)
-      # Cambio de nombre de la columna aquí
-      row_data['iOS Bundle ID (ID para android)'] = ios_bundle
+      # Nombre de columna actualizado
+      row_data['Android App ID'] = ios_bundle
       row_data['iOS App ID'] = ios_id
 
     if target_os in ['Android', 'Ambos']:

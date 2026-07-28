@@ -72,20 +72,15 @@ def process_app_list(df_apps, target_os='Ambos', country_code='US'):
   for idx, row in df_apps.iterrows():
     name_clean = str(row['App Name']).strip()
     
-    # Mantener el tráfico si viene del CSV
-    auctions = row.get('Auctions', None)
-    
     status_text.text(f'Buscando ({idx + 1}/{total}): {name_clean}')
 
     row_data = {'App Name': name_clean}
-    if auctions is not None:
-        row_data['Auctions (Tráfico)'] = auctions
 
     # Búsqueda según el OS seleccionado
     if target_os in ['iOS', 'Ambos']:
       ios_bundle, ios_id = get_ios_info(name_clean, country_code)
       row_data['Android App ID'] = ios_bundle  # Bundle ID de iOS
-      row_data['iOS App ID'] = ios_id          # Ahora con 'id' delante (ej. id306310789)
+      row_data['iOS App ID'] = ios_id          # Con 'id' delante (ej. id306310789)
 
     if target_os in ['Android', 'Ambos']:
       android_pkg = get_android_info(name_clean, country_code)

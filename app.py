@@ -1,4 +1,5 @@
 import io
+import os
 import time
 import urllib.parse
 import pandas as pd
@@ -8,28 +9,26 @@ import streamlit as st
 # Intentar cargar la librería de Android
 try:
   from google_play_scraper import search
-
   HAS_PLAY_SCRAPER = True
 except ImportError:
   HAS_PLAY_SCRAPER = False
 
 st.set_page_config(
-    page_title='App ID & Bundle Extractor', page_icon='📱', layout='centered'
+    page_title='App ID & Bundle Extractor', page_icon='📱', layout='wide'
 )
 
 st.title('📱 Extractor de Bundle ID & App ID')
 st.write(
-    'Selecciona el sistema operativo, introduce las aplicaciones y obtén sus'
-    ' identificadores.'
+    'Busca identificadores de aplicaciones manualmente o extrae los datos '
+    'directamente desde tu Biblioteca de Apps (CSVs).'
 )
 
-
 # --- FUNCIONES DE BÚSQUEDA ---
-def get_ios_info(app_name):
-  """Busca en la API de Apple (US por defecto)."""
+def get_ios_info(app_name, country_code='US'):
+  """Busca en la API de Apple."""
   clean_name = app_name.split('.com')[0] if '.com' in app_name else app_name
   encoded_name = urllib.parse.quote(clean_name)
-  url = f'https://itunes.apple.com/search?term={encoded_name}&entity=software&limit=1'
+  url = f'https://itunes.apple.com/search?term={encoded_name}&entity=software&country={country_code}&limit=1'
 
   try:
     response = requests.get(url, timeout=4)
@@ -43,49 +42,50 @@ def get_ios_info(app_name):
   return 'N/A', 'N/A'
 
 
-def get_android_info(app_name):
+def get_android_info(app_name, country_code='us'):
   """Busca en Google Play Store."""
   if not HAS_PLAY_SCRAPER:
-    return 'Librería no instalada', 'Librería no instalada'
+    return 'Librería no instalada'
 
   clean_name = app_name.split('.com')[0] if '.com' in app_name else app_name
   try:
-    results = search(clean_name, n_hits=1, lang='en', country='us')
+    results = search(clean_name, n_hits=1, lang='en', country=country_code.lower())
     if results:
-      app_pkg = results[0].get('appId', 'N/A')
-      return app_pkg, app_pkg
+      return results[0].get('appId', 'N/A')
   except Exception:
     pass
-  return 'N/A', 'N/A'
+  return 'N/A'
 
 
-def process_app_list(app_list, target_os):
-  """Procesa la lista según el OS seleccionado."""
+def process_app_list(df_apps, target_os, country_code='US'):
+  """Procesa una lista de apps (DataFrame) y busca sus identificadores."""
   results = []
-  total = len(app_list)
+  total = len(df_apps)
 
   progress_bar = st.progress(0)
   status_text = st.empty()
   start_time = time.time()
 
-  for idx, name in enumerate(app_list):
-    name_clean = name.strip()
-    if not name_clean:
-      continue
-
+  for idx, row in df_apps.iterrows():
+    name_clean = str(row['App Name']).strip()
+    
+    # Mantener el tráfico si viene del CSV
+    auctions = row.get('Auctions', None)
+    
     status_text.text(f'Buscando ({idx + 1}/{total}): {name_clean}')
 
     row_data = {'App Name': name_clean}
+    if auctions is not None:
+        row_data['Auctions (Tráfico)'] = auctions
 
-    # Búsqueda condicional según la selección del usuario
+    # Búsqueda según el OS seleccionado
     if target_os in ['iOS', 'Ambos']:
-      ios_bundle, ios_id = get_ios_info(name_clean)
-      # Nombre de columna actualizado
-      row_data['Android App ID'] = ios_bundle
+      ios_bundle, ios_id = get_ios_info(name_clean, country_code)
+      row_data['Android App ID'] = ios_bundle  # Tal y como pediste llamarlo
       row_data['iOS App ID'] = ios_id
 
     if target_os in ['Android', 'Ambos']:
-      android_pkg, _ = get_android_info(name_clean)
+      android_pkg = get_android_info(name_clean, country_code)
       row_data['Android Bundle / App ID'] = android_pkg
 
     results.append(row_data)
@@ -99,93 +99,119 @@ def process_app_list(app_list, target_os):
   return pd.DataFrame(results)
 
 
-# --- SELECTOR DE SISTEMA OPERATIVO ---
-selected_os = st.radio(
-    '1. Selecciona el Sistema Operativo:',
-    options=['iOS', 'Android', 'Ambos'],
-    horizontal=True,
-)
-
-# Advertencia si falta la librería de Android y se ha seleccionado Android
-if selected_os in ['Android', 'Ambos'] and not HAS_PLAY_SCRAPER:
+# --- ADVERTENCIA LIBRERÍA ANDROID ---
+if not HAS_PLAY_SCRAPER:
   st.warning(
-      '⚠️ La librería `google-play-scraper` no está instalada. Ejecuta `pip'
-      ' install google-play-scraper` en tu terminal o añádela a'
-      ' `requirements.txt`.'
+      '⚠️ La librería `google-play-scraper` no está instalada. Ejecuta `pip '
+      'install google-play-scraper` o añádela a tu `requirements.txt`.'
   )
 
 st.write('---')
 
-# --- ENTRADA DE DATOS ---
-tab1, tab2 = st.tabs(
-    ['✍️ Escribir Lista a Mano', '📁 Subir Archivo CSV / Excel']
-)
+# --- PESTAÑAS DE LA APP ---
+tab1, tab2 = st.tabs(["✍️ Búsqueda Manual", "📁 Biblioteca de Apps"])
 
-# TAB 1: Entrada manual
+# ==========================================
+# PESTAÑA 1: BÚSQUEDA MANUAL
+# ==========================================
 with tab1:
-  default_text = """Block Blast
-Vita Mahjong
-Wordscapes
-Spotify
-TikTok"""
-  user_text = st.text_area(
-      '2. Nombres de las aplicaciones (uno por línea):',
-      value=default_text,
-      height=180,
-  )
+  st.subheader("Búsqueda Manual de Identificadores")
+  
+  col1_m, col2_m = st.columns(2)
+  with col1_m:
+      manual_os = st.selectbox('Sistema Operativo (Manual):', ['iOS', 'Android', 'Ambos'], key='manual_os')
+  with col2_m:
+      manual_country = st.text_input('Código de País (ej. US, ES):', 'US', key='manual_country')
+      
+  default_text = "Block Blast\nVita Mahjong\nWordscapes\nSpotify"
+  user_text = st.text_area('Nombres de las aplicaciones (uno por línea):', value=default_text, height=180)
 
-  if st.button('🚀 Buscar Identificadores'):
+  if st.button('🚀 Buscar Identificadores (Manual)'):
     app_names = [line for line in user_text.split('\n') if line.strip()]
     if app_names:
-      df_results = process_app_list(app_names, selected_os)
+      df_manual = pd.DataFrame({'App Name': app_names})
+      df_results = process_app_list(df_manual, manual_os, manual_country)
+      
       st.dataframe(df_results, use_container_width=True)
-
       csv = df_results.to_csv(index=False).encode('utf-8')
-      st.download_button(
-          '📥 Descargar CSV',
-          data=csv,
-          file_name='Apps_Identificadores.csv',
-          mime='text/csv',
-      )
+      st.download_button('📥 Descargar CSV', data=csv, file_name='Apps_Manual.csv', mime='text/csv')
     else:
       st.warning('Escribe al menos un nombre.')
 
-# TAB 2: Subida de CSV
+
+# ==========================================
+# PESTAÑA 2: BIBLIOTECA DE APPS (CSV)
+# ==========================================
 with tab2:
-  uploaded_file = st.file_uploader('2. Sube tu archivo CSV', type=['csv'])
+  st.subheader("Extraer Top Apps desde Archivos Locales")
+  
+  # Buscar archivos en la carpeta data/
+  data_dir = 'data'
+  available_files = []
+  if os.path.exists(data_dir):
+      available_files = [f for f in os.listdir(data_dir) if f.endswith('.csv')]
+      available_files.sort()
 
-  if uploaded_file is not None:
-    try:
-      # Leer CSV intentando detectar automáticamente encabezados
-      df_upload = pd.read_csv(uploaded_file)
+  if not available_files:
+      st.info("📂 No se han encontrado archivos CSV en la carpeta `data/`.")
+  else:
+      col1_b, col2_b, col3_b = st.columns(3)
+      with col1_b:
+          selected_file = st.selectbox('1. Selecciona el Archivo:', options=available_files)
+      with col2_b:
+          selected_country = st.text_input('2. Código de País para la API:', value=selected_file[:2].upper())
+      with col3_b:
+          selected_os = st.selectbox('3. Sistema Operativo:', ['iOS', 'Android', 'Ambos'], key='biblio_os')
 
-      # Si 'App Name' no está en la primera fila, buscar en las siguientes
-      if 'App Name' not in df_upload.columns:
-        # Intentar saltar hasta 8 filas por si es un reporte con metadatos
-        for skip in range(1, 10):
-          uploaded_file.seek(0)
-          temp_df = pd.read_csv(uploaded_file, skiprows=skip)
-          if 'App Name' in temp_df.columns:
-            df_upload = temp_df
-            break
-
-      if 'App Name' in df_upload.columns:
-        st.write(f'Apps encontradas en el archivo: **{len(df_upload)}**')
-
-        if st.button('🚀 Procesar CSV'):
-          app_names = df_upload['App Name'].dropna().tolist()
-          df_results = process_app_list(app_names, selected_os)
-
-          st.dataframe(df_results, use_container_width=True)
-
-          csv = df_results.to_csv(index=False).encode('utf-8')
-          st.download_button(
-              '📥 Descargar CSV Enriquecido',
-              data=csv,
-              file_name='CSV_Apps_Enriquecido.csv',
-              mime='text/csv',
-          )
-      else:
-        st.error("No se encontró la columna 'App Name' en el CSV.")
-    except Exception as e:
-      st.error(f'Error al leer el archivo: {e}')
+      file_path = os.path.join(data_dir, selected_file)
+      
+      try:
+          # Leer el archivo CSV saltando la cabecera si es necesario
+          df_file = pd.read_csv(file_path)
+          
+          # Si 'App Name' no está en las columnas, intentamos saltar filas (formato Kayzen)
+          if 'App Name' not in df_file.columns:
+              for skip in range(1, 15):
+                  temp_df = pd.read_csv(file_path, skiprows=skip)
+                  if 'App Name' in temp_df.columns:
+                      df_file = temp_df
+                      break
+          
+          if 'App Name' in df_file.columns:
+              # Limpiar y ordenar por Auctions si existe
+              if 'Auctions' in df_file.columns:
+                  df_file['Auctions'] = pd.to_numeric(df_file['Auctions'], errors='coerce')
+                  df_file = df_file.sort_values(by='Auctions', ascending=False).dropna(subset=['App Name'])
+              
+              total_apps = len(df_file)
+              
+              # Elegir la cantidad de apps a procesar
+              top_limit = st.slider(
+                  '4. ¿Cuántas aplicaciones del Top quieres procesar?',
+                  min_value=5, max_value=min(500, total_apps), value=30, step=5
+              )
+              
+              df_top = df_file.head(top_limit).copy()
+              
+              st.write(f"**Vista previa de las Top {top_limit} apps (de {total_apps} totales):**")
+              preview_cols = ['App Name', 'Auctions'] if 'Auctions' in df_top.columns else ['App Name']
+              st.dataframe(df_top[preview_cols], use_container_width=True)
+              
+              if st.button(f'🚀 Obtener Identificadores para el Top {top_limit}'):
+                  df_results = process_app_list(df_top, selected_os, selected_country)
+                  
+                  st.subheader('Resultados:')
+                  st.dataframe(df_results, use_container_width=True)
+                  
+                  csv = df_results.to_csv(index=False).encode('utf-8')
+                  st.download_button(
+                      '📥 Descargar Tabla Final en CSV',
+                      data=csv,
+                      file_name=f'Top_{top_limit}_{selected_file}',
+                      mime='text/csv'
+                  )
+          else:
+              st.error(f"No se encontró la columna 'App Name' en {selected_file}.")
+      
+      except Exception as e:
+          st.error(f"Error al leer el archivo {selected_file}: {e}")

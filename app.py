@@ -25,7 +25,7 @@ st.write(
 
 # --- FUNCIONES DE BÚSQUEDA ---
 def get_ios_info(app_name, country_code='US'):
-  """Busca en la API de Apple."""
+  """Busca en la API de Apple y añade 'id' al inicio del iOS App ID."""
   clean_name = app_name.split('.com')[0] if '.com' in app_name else app_name
   encoded_name = urllib.parse.quote(clean_name)
   url = f'https://itunes.apple.com/search?term={encoded_name}&entity=software&country={country_code}&limit=1'
@@ -36,7 +36,10 @@ def get_ios_info(app_name, country_code='US'):
       data = response.json()
       if data.get('resultCount', 0) > 0:
         res = data['results'][0]
-        return res.get('bundleId', 'N/A'), str(res.get('trackId', 'N/A'))
+        track_id = res.get('trackId')
+        # Formatear añadiendo 'id' al inicio
+        ios_id = f"id{track_id}" if track_id else "N/A"
+        return res.get('bundleId', 'N/A'), ios_id
   except Exception:
     pass
   return 'N/A', 'N/A'
@@ -82,7 +85,7 @@ def process_app_list(df_apps, target_os='Ambos', country_code='US'):
     if target_os in ['iOS', 'Ambos']:
       ios_bundle, ios_id = get_ios_info(name_clean, country_code)
       row_data['Android App ID'] = ios_bundle  # Bundle ID de iOS
-      row_data['iOS App ID'] = ios_id
+      row_data['iOS App ID'] = ios_id          # Ahora con 'id' delante (ej. id306310789)
 
     if target_os in ['Android', 'Ambos']:
       android_pkg = get_android_info(name_clean, country_code)

@@ -57,7 +57,7 @@ def get_android_info(app_name, country_code='us'):
   return 'N/A'
 
 
-def process_app_list(df_apps, target_os, country_code='US'):
+def process_app_list(df_apps, target_os='Ambos', country_code='US'):
   """Procesa una lista de apps (DataFrame) y busca sus identificadores."""
   results = []
   total = len(df_apps)
@@ -78,7 +78,7 @@ def process_app_list(df_apps, target_os, country_code='US'):
     if auctions is not None:
         row_data['Auctions (Tráfico)'] = auctions
 
-    # Búsqueda según el OS seleccionado
+    # Búsqueda según el OS
     if target_os in ['iOS', 'Ambos']:
       ios_bundle, ios_id = get_ios_info(name_clean, country_code)
       row_data['Android App ID'] = ios_bundle  # Tal y como pediste llamarlo
@@ -117,20 +117,17 @@ tab1, tab2 = st.tabs(["✍️ Búsqueda Manual", "📁 Biblioteca de Apps"])
 with tab1:
   st.subheader("Búsqueda Manual de Identificadores")
   
-  col1_m, col2_m = st.columns(2)
-  with col1_m:
-      manual_os = st.selectbox('Sistema Operativo (Manual):', ['iOS', 'Android', 'Ambos'], key='manual_os')
-  with col2_m:
-      manual_country = st.text_input('Código de País (ej. US, ES):', 'US', key='manual_country')
+  manual_os = st.selectbox('Sistema Operativo:', ['iOS', 'Android', 'Ambos'], key='manual_os')
       
   default_text = "Block Blast\nVita Mahjong\nWordscapes\nSpotify"
   user_text = st.text_area('Nombres de las aplicaciones (uno por línea):', value=default_text, height=180)
 
-  if st.button('🚀 Buscar Identificadores (Manual)'):
+  if st.button('🚀 Buscar Identificadores'):
     app_names = [line for line in user_text.split('\n') if line.strip()]
     if app_names:
       df_manual = pd.DataFrame({'App Name': app_names})
-      df_results = process_app_list(df_manual, manual_os, manual_country)
+      # Por defecto buscará en la tienda de US
+      df_results = process_app_list(df_manual, manual_os, 'US')
       
       st.dataframe(df_results, use_container_width=True)
       csv = df_results.to_csv(index=False).encode('utf-8')
@@ -155,28 +152,24 @@ with tab2:
   if not available_files:
       st.info("📂 No se han encontrado archivos CSV en la carpeta `data/`.")
   else:
-      col1_b, col2_b, col3_b = st.columns(3)
-      with col1_b:
-          selected_file = st.selectbox('1. Selecciona el Archivo:', options=available_files)
-      with col2_b:
-          selected_country = st.text_input('2. Código de País para la API:', value=selected_file[:2].upper())
-      with col3_b:
-          selected_os = st.selectbox('3. Sistema Operativo:', ['iOS', 'Android', 'Ambos'], key='biblio_os')
-
+      # Solo selector de archivo
+      selected_file = st.selectbox('1. Selecciona el Archivo:', options=available_files)
       file_path = os.path.join(data_dir, selected_file)
       
       try:
-          # Leer el archivo CSV saltando la cabecera si es necesario
-          df_file = pd.read_csv(file_path)
-          
-          # Si 'App Name' no está en las columnas, intentamos saltar filas (formato Kayzen)
-          if 'App Name' not in df_file.columns:
-              for skip in range(1, 15):
-                  temp_df = pd.read_csv(file_path, skiprows=skip)
-                  if 'App Name' in temp_df.columns:
-                      df_file = temp_df
+          # --- NUEVA LÓGICA ANTI-ERRORES ---
+          # 1. Leemos el archivo línea por línea para encontrar dónde empieza "App Name"
+          skip_idx = 0
+          with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+              for i, line in enumerate(f):
+                  if line.startswith('App Name'):
+                      skip_idx = i
                       break
-          
+                      
+          # 2. Leemos el CSV ordenándole que ignore exactamente la cantidad de líneas basura (skip_idx)
+          df_file = pd.read_csv(file_path, skiprows=skip_idx)
+          # ----------------------------------
+
           if 'App Name' in df_file.columns:
               # Limpiar y ordenar por Auctions si existe
               if 'Auctions' in df_file.columns:
@@ -187,8 +180,8 @@ with tab2:
               
               # Elegir la cantidad de apps a procesar
               top_limit = st.slider(
-                  '4. ¿Cuántas aplicaciones del Top quieres procesar?',
-                  min_value=5, max_value=min(500, total_apps), value=30, step=5
+                  '2. ¿Cuántas aplicaciones del Top quieres procesar?',
+                  min_value=5, max_value=min(500, total_apps) if total_apps > 0 else 100, value=min(30, total_apps), step=5
               )
               
               df_top = df_file.head(top_limit).copy()
@@ -198,7 +191,14 @@ with tab2:
               st.dataframe(df_top[preview_cols], use_container_width=True)
               
               if st.button(f'🚀 Obtener Identificadores para el Top {top_limit}'):
-                  df_results = process_app_list(df_top, selected_os, selected_country)
+                  
+                  # Para la API, inferimos el país desde el nombre del archivo (ej. 'US-iOS.csv' -> 'US')
+                  inferred_country = selected_file[:2].upper()
+                  if not inferred_country.isalpha():
+                      inferred_country = 'US'
+
+                  # Se busca en AMBOS (Apple y Google) para que la tabla sea idéntica a la Pestaña 1
+                  df_results = process_app_list(df_top, target_os='Ambos', country_code=inferred_country)
                   
                   st.subheader('Resultados:')
                   st.dataframe(df_results, use_container_width=True)
@@ -214,4 +214,4 @@ with tab2:
               st.error(f"No se encontró la columna 'App Name' en {selected_file}.")
       
       except Exception as e:
-          st.error(f"Error al leer el archivo {selected_file}: {e}")
+          st.error(f"Error al procesar el archivo {selected_file}: {e}")

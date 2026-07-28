@@ -76,14 +76,13 @@ def process_app_list(df_apps, target_os='Ambos', country_code='US'):
 
     row_data = {'App Name': name_clean}
 
-    # AHORA: SIEMPRE buscamos en la API de iOS sin importar qué OS esté seleccionado
-    # para asegurar que 'Android App ID' (Bundle de Apple) siempre tenga valor.
+    # SIEMPRE buscamos en la API de iOS para obtener los datos
     ios_bundle, ios_id = get_ios_info(name_clean, country_code)
     row_data['Android App ID'] = ios_bundle  
     row_data['iOS App ID'] = ios_id          
 
-    # Y si se seleccionó Android o Ambos, buscamos TAMBIÉN en Google Play
-    if target_os in ['Android', 'Ambos']:
+    # Solo buscamos en Google Play original si el usuario quiere "Ambos"
+    if target_os == 'Ambos':
       android_pkg = get_android_info(name_clean, country_code)
       row_data['Android Bundle / App ID'] = android_pkg
 
@@ -95,7 +94,19 @@ def process_app_list(df_apps, target_os='Ambos', country_code='US'):
   status_text.success(
       f'¡Completado en {round(time.time() - start_time, 1)} segundos!'
   )
-  return pd.DataFrame(results)
+  
+  df_results = pd.DataFrame(results)
+  
+  # --- FILTRO FINAL DE COLUMNAS SEGÚN EL OS ELEGIDO ---
+  if target_os == 'Android':
+      return df_results[['App Name', 'Android App ID']]
+  elif target_os == 'iOS':
+      return df_results[['App Name', 'iOS App ID']]
+  else:
+      # Para "Ambos", dejamos todas las disponibles
+      cols = ['App Name', 'Android App ID', 'iOS App ID', 'Android Bundle / App ID']
+      cols_present = [c for c in cols if c in df_results.columns]
+      return df_results[cols_present]
 
 
 # --- ADVERTENCIA LIBRERÍA ANDROID ---
@@ -200,7 +211,7 @@ with tab2:
               df_file = pd.read_csv(file_path, skiprows=skip_idx)
 
               if 'App Name' in df_file.columns:
-                  # Ordenar por tráfico (Auctions)
+                  # Ordenar por tráfico (Auctions) para previsualización
                   if 'Auctions' in df_file.columns:
                       df_file['Auctions'] = pd.to_numeric(df_file['Auctions'], errors='coerce')
                       df_file = df_file.sort_values(by='Auctions', ascending=False).dropna(subset=['App Name'])
@@ -218,7 +229,8 @@ with tab2:
                   df_top = df_file.head(top_limit).copy()
 
                   st.write(f"**Vista previa de las Top {top_limit} apps (de {total_apps} totales en {actual_filename}):**")
-                  # En la vista previa sí mostramos Auctions (si existe) para que sepas el tráfico que tienen
+                  
+                  # En la vista previa mostramos las apps que se van a procesar (aún con Auctions visible como referencia)
                   preview_cols = ['App Name', 'Auctions'] if 'Auctions' in df_top.columns else ['App Name']
                   st.dataframe(df_top[preview_cols], use_container_width=True)
 

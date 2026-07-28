@@ -76,12 +76,13 @@ def process_app_list(df_apps, target_os='Ambos', country_code='US'):
 
     row_data = {'App Name': name_clean}
 
-    # Búsqueda según el OS seleccionado
-    if target_os in ['iOS', 'Ambos']:
-      ios_bundle, ios_id = get_ios_info(name_clean, country_code)
-      row_data['Android App ID'] = ios_bundle  # Bundle ID de iOS
-      row_data['iOS App ID'] = ios_id          # Con 'id' delante (ej. id306310789)
+    # AHORA: SIEMPRE buscamos en la API de iOS sin importar qué OS esté seleccionado
+    # para asegurar que 'Android App ID' (Bundle de Apple) siempre tenga valor.
+    ios_bundle, ios_id = get_ios_info(name_clean, country_code)
+    row_data['Android App ID'] = ios_bundle  
+    row_data['iOS App ID'] = ios_id          
 
+    # Y si se seleccionó Android o Ambos, buscamos TAMBIÉN en Google Play
     if target_os in ['Android', 'Ambos']:
       android_pkg = get_android_info(name_clean, country_code)
       row_data['Android Bundle / App ID'] = android_pkg
@@ -217,6 +218,7 @@ with tab2:
                   df_top = df_file.head(top_limit).copy()
 
                   st.write(f"**Vista previa de las Top {top_limit} apps (de {total_apps} totales en {actual_filename}):**")
+                  # En la vista previa sí mostramos Auctions (si existe) para que sepas el tráfico que tienen
                   preview_cols = ['App Name', 'Auctions'] if 'Auctions' in df_top.columns else ['App Name']
                   st.dataframe(df_top[preview_cols], use_container_width=True)
 
